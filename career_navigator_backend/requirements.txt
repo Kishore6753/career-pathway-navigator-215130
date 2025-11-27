@@ -41,3 +41,10 @@ uvicorn==0.34.0
 uvloop==0.21.0
 watchfiles==1.0.5
 websockets==15.0.1
+# Seeding toolchain
+pandas==2.2.3
+openpyxl==3.1.5
+tenacity==9.0.0
+tqdm==4.67.1
+# Supabase client (v2)
+supabase==2.7.4
