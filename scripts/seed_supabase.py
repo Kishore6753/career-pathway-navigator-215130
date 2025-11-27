@@ -170,6 +170,9 @@ def main() -> None:
     print("Preparing role_competencies relationships ...")
     role_comp_rows = attach_ids_for_relationships(role_comp_assoc, role_map, comp_map)
 
+    # Some schemas may not include a 'level' column on role_competencies; drop it if present.
+    role_comp_rows = [{k: v for k, v in row.items() if k != "level"} for row in role_comp_rows]
+
     print("Upserting role_competencies ...")
     rc_processed = upsert_in_batches(
         client,

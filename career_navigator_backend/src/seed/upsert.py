@@ -106,7 +106,8 @@ def delete_all(client: Client, table: str) -> int:
 # PUBLIC_INTERFACE
 def get_count(client: Client, table: str) -> Optional[int]:
     """Return exact row count for a table."""
-    resp = client.table(table).select("id", count="exact").limit(1).execute()
+    # Use wildcard selection so this works for tables without a conventional 'id' column.
+    resp = client.table(table).select("*", count="exact").limit(1).execute()
     # supabase-py v2: count is on resp.count
     return getattr(resp, "count", None)
 
