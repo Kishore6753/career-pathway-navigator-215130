@@ -1,1 +1,3 @@
-# career-pathway-navigator-215130
+# Project Repository
+
+This is the initial README file for the project.
