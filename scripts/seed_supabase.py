@@ -15,7 +15,7 @@ Tables (assumed to exist):
 - roles (unique: name)
 - role_competencies (unique: role_id,competency_id)  fields: role_id, competency_id, level
 - role_adjacency (unique: source_role_id,target_role_id)  fields: source_role_id, target_role_id, score
-- learning_resources (unique: competency_id,url)  fields: competency_id, url, title? (Not populated if not present in inputs)
+- learning_resources (unique: competency_id,url)  fields: competency_id, url, title
 
 Usage examples:
 - Dry-run to show counts:
@@ -55,6 +55,7 @@ from seed.transform import (  # type: ignore
     build_from_competency_mapping,
     build_role_adjacency_records,
     build_roles_from_cards,
+    build_learning_resources_from_navigator,
 )
 from seed.upsert import delete_all, get_count, get_id_map, get_supabase_client, upsert_in_batches  # type: ignore
 
@@ -117,11 +118,11 @@ def main() -> None:
     adjacency_df = load_role_adjacency_excel(args.role_adjacency_xlsx)
     role_cards = load_role_card_texts(args.role_card_paths)
 
-    # Navigator sheet not currently mapped (placeholder for future learning_resources)
+    # Navigator sheet for potential learning resources extraction
     try:
-        _ = load_role_navigator_excel(args.role_navigator_xlsx)
+        navigator_df = load_role_navigator_excel(args.role_navigator_xlsx)
     except Exception:
-        _ = None
+        navigator_df = None
 
     # 2) Transform to rows
     comp_rows, role_rows_from_mapping, role_comp_assoc = build_from_competency_mapping(competency_df, limit=limit)
@@ -130,12 +131,15 @@ def main() -> None:
 
     role_adj_name_rows = build_role_adjacency_records(adjacency_df, limit=limit)
 
+    # Learning resources from navigator sheet (optional)
+    lr_name_rows = build_learning_resources_from_navigator(navigator_df, limit=limit)
+
     planning_counts = {
         "competencies": len(comp_rows),
         "roles": len(role_rows),
         "role_competencies": len(role_comp_assoc),
         "role_adjacency": len(role_adj_name_rows),
-        "learning_resources": 0,  # not populated from inputs at this time
+        "learning_resources": len(lr_name_rows),
     }
 
     if args.dry_run:
@@ -194,8 +198,35 @@ def main() -> None:
         batch_size=1000,
     )
 
-    # learning_resources skipped (no structured URLs in provided inputs)
+    # Prepare learning resources (optional)
+    print("Preparing learning_resources ...")
+    lr_rows = []
+    for row in lr_name_rows:
+        cname = row.get("competency_name", "")
+        if not cname or cname not in comp_map:
+            continue
+        lr_rows.append(
+            {
+                "competency_id": comp_map[cname],
+                "url": row.get("url"),
+                "title": row.get("title"),
+            }
+        )
+
     lr_processed = 0
+    if lr_rows:
+        print("Upserting learning_resources ...")
+        try:
+            lr_processed = upsert_in_batches(
+                client,
+                "learning_resources",
+                lr_rows,
+                on_conflict="competency_id,url",
+                batch_size=1000,
+            )
+        except Exception as exc:
+            # Continue without failing the entire seed if table is not yet provisioned
+            print(f"Warning: learning_resources upsert skipped due to error: {exc}")
 
     processed_counts = {
         "competencies_processed": comps_processed,

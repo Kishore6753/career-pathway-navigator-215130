@@ -239,3 +239,76 @@ def attach_ids_for_role_adjacency(
             }
         )
     return out
+
+
+# PUBLIC_INTERFACE
+def build_learning_resources_from_navigator(
+    navigator_df: Optional[pd.DataFrame], limit: Optional[int] = None
+) -> List[Dict]:
+    """Extract learning resources from a Role Navigator worksheet into name-based rows.
+
+    Heuristics:
+      - Identify URL-like cells anywhere in the sheet (http/https links).
+      - Associate each URL with a competency when a competency-like column is present
+        (e.g., 'competency', 'competencies', 'skill', 'capability').
+      - Title is taken from a 'title'/'name'/'resource' column if present; otherwise fallback to URL.
+
+    Returns:
+      [{'competency_name': str, 'url': str, 'title': str}]
+
+    Notes:
+      - Rows without a recognizable competency name are skipped to avoid FK issues.
+      - Duplicate (competency_name, url) pairs are de-duplicated.
+    """
+    if navigator_df is None or navigator_df.empty:
+        return []
+
+    # Normalize column name lookup
+    cols_lower = {c.lower().strip(): c for c in navigator_df.columns}
+    comp_col_candidates = ("competency", "competencies", "skill", "skills", "capability", "capabilities")
+    title_col_candidates = ("title", "name", "resource", "learning", "description")
+
+    comp_col: Optional[str] = next((cols_lower[c] for c in comp_col_candidates if c in cols_lower), None)
+    title_col: Optional[str] = next((cols_lower[c] for c in title_col_candidates if c in cols_lower), None)
+
+    url_pattern = re.compile(r"https?://\S+", re.IGNORECASE)
+    out: List[Dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    # Scan each row: gather all URL-like values across the row
+    for _, row in navigator_df.iterrows():
+        comp_name = (str(row[comp_col]).strip() if comp_col and pd.notna(row.get(comp_col)) else "")
+        if not comp_name:
+            # Without a competency, we skip to avoid orphan resources
+            continue
+
+        # Determine title fallback from a title-like column if present
+        fallback_title = ""
+        if title_col and pd.notna(row.get(title_col)):
+            fallback_title = str(row.get(title_col)).strip()
+
+        # Search all cells in the row for URLs
+        urls: List[str] = []
+        for val in row.tolist():
+            if pd.isna(val):
+                continue
+            s = str(val)
+            for m in url_pattern.findall(s):
+                urls.append(m.strip())
+
+        for u in urls:
+            key = (comp_name, u)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(
+                {
+                    "competency_name": comp_name,
+                    "url": u,
+                    "title": fallback_title or u,
+                }
+            )
+
+    if limit is not None and limit > 0:
+        out = out[:limit]
+    return out
